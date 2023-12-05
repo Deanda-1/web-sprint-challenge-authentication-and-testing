@@ -72,7 +72,7 @@ router.post('/login', checkFormat, async (req, res, next) => {
         }
       })
     } catch (err) {
-      next(err)
+      next()
     }
   /*
     IMPLEMENT
