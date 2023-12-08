@@ -1,57 +1,120 @@
 // Write your tests here
-const db = require('../data/dbConfig')
-const request = require('supertest')
-const server = require('./server')
+const app = require("./server")
+const supertest = require("supertest")
+const request = supertest(app)
+const db = require("../data/dbConfig")
+
+const User = require("./users/users-model")
+
+const user1 = { username: 'tom', password: '1234' }
 
 beforeAll(async () => {
-  await db.migrate.rollback();
-  await db.migrate.latest();
+  await db.migrate.rollback()
+  await db.migrate.latest()
 })
 
 beforeEach(async () => {
-  await db('users').truncate()
+  await db("users").truncate()
 })
 
-describe('[GET] /jokes', () => {
-  const newUser = { username: "user", password: "1234" }
-  test('receives an error with no token present', async () => {
-    await request(server).post('/api/auth/register').send(newUser)
-    await request(server).post('/api/auth.login').send(newUser)
-    const data = await request(server).get('/api/jokes')
-    expect(data.body.username).toBe('token required')
-  })
-  test('returns a list of jokes while authorized', async () => {
-    await request(server).post('/api/auth/register').send(newUser)
-    const res = await request(server).post('/api/auth/login').send(newUser)
-    const data = await request(server).get('/api/jokes').set('Authorization', `${res.body.token}`)
-    expect(data.body).toHaveLength(3)
-  })
+afterAll(async () => {
+  await db.destroy()
 })
 
-describe('[POST] /auth/register', () => {
-  const newUser = { username: "user", password: "1234" }
-  test('new users are listed in the database', async () => {
-    await request(server).post('/api/auth/register').send(newUser)
-    const rows = await db('users')
-    expect(rows).toHaveLength(1)
-  })
-  test('returns username and hashed password', async () => {
-    const res = await request(server).post('/api/auth/register').send(newUser)
-    expect(res.body.username).toMatch(newUser.username)
-    expect(res.body.password).not.toMatch(newUser.password)
-  })
-})
+describe("users model function", () => {
 
-describe('[POST] /auth/login', () => {
-  const newUser = { username: "user", password: "1234" }
-  test('new user obtains a token when logging in', async () => {
-    await request(server).post('/api/auth/register').send(newUser)
-    const res = await request(server).post('/api/auth/login').send(newUser)
-    expect(res.body.token).toBeDefined()
+  describe("create user", () => {
+    it("adds user to the db", async () => {
+      let users
+      await User.add(user1)
+      users = await db("users")
+      expect(users).toHaveLength(1)
+    })
   })
-  test('incorrect password gives an error', async () => {
-    await request(server).post('/api/auth/register').send(newUser)
-    const res = await request(server).post('/api/auth/login').send({ username: newUser.username, password: '123' })
-    expect(res.body.message).toBe('invalid credentials')
+
+  describe("[POST] register endpoint", () => {
+    it("tries to register with missing information", async () => {
+      const addedUser = await request
+        .post('/api/auth/register')
+        .send({
+          "username": "",
+          "password": "foobar",
+        })
+        expect(addedUser.body.message).toBe("username and password required")
+    })
+    it("tries to register with a preexisting username", async () => {
+      let addedUser = await request 
+        .post('/api/auth/register')
+        .send({
+          "username": "Captain Marvel",
+          "password": "foobar",
+        })
+        addedUser = await request 
+          .post('/api/auth/register')
+          .send({
+            "username": "Captain Marvel",
+            "password": "foobar",
+          })
+          expect(addedUser.body.message).toBe("username taken")
+    })
+  })
+
+  describe("[POST] login endpoint", () => {
+    it("tries to login with missing information", async () => {
+      const addedUser = await request
+        .post('/api/auth/login')
+        .send({
+          "username": "",
+          "password": "foobar",
+        })
+        expect(addedUser.body.message).toBe("username and password required")
+    })
+    it("tries to login with bad information", async () => {
+      const addedUser = await request
+        .post('/api/auth/login')
+        .send({
+          "username": "adsfadsfadsf",
+          "password": "foobar",
+        })
+        expect(addedUser.body.message).toBe("invalid credentials")
+    })
+    it("...", async () => {
+      await request.post('/api/auth/register')
+        .send({
+          "username": "Captain Marvel",
+          "password": "foobar",
+        })
+        const loggedUser = await request  
+          .post('/api/auth/login')
+          .send({
+            "username": "Captain Marvel",
+            "password": "foobar",
+          })
+          expect(loggedUser.body.token).toBeTruthy()
+    })
+  })
+
+  describe("[GET] jokes endpoint", () => {
+    it("tries to access jokes without logging in", async () => {
+      const jokes = await request.get('/api/jokes')
+      expect(jokes.body.message).toBe("token required")
+    })
+    it("tries to access jokes after registering and logging in", async () => {
+      await request.post('/api/auth/register')
+        .send({
+          "username": "Captain Marvel",
+          "password": "foobar",
+        })
+        const loggedUser = await request
+          .post('/api/auth/login')
+          .send({
+            "username": "Captain Marvel",
+            "password": "foobar",
+          })
+          const token = loggedUser.body.token
+          const jokes = await request.get('/api/jokes')
+            .set('Authorization', token)
+            expect(jokes.body.length).toBe(3)
+    })
   })
 })
